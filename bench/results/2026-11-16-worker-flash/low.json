@@ -1,0 +1,108 @@
+{
+  "date": "2026-11-16",
+  "timestamp": "2026-11-16T22:20:21.444602+00:00",
+  "platform": "darwin-arm64",
+  "binary": "/Users/filip/.local/bin/pi-bolt",
+  "binary_version": "1.5.2 (Pi-Bolt 1.2.1, darwin-arm64, JIT off)",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "thinking": "low",
+  "prompt": "Reply with the single word: ready",
+  "runs": [
+    {
+      "exit_code": 0,
+      "wall_s": 2.7037,
+      "rss_bytes": 75939840,
+      "usage": {
+        "input": 2195,
+        "output": 3,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.00033105,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 1
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 2.5841,
+      "rss_bytes": 75628544,
+      "usage": {
+        "input": 2195,
+        "output": 3,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.00033105,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 2
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 2.321,
+      "rss_bytes": 75677696,
+      "usage": {
+        "input": 2195,
+        "output": 3,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.00033105,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 3
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 3.68,
+      "rss_bytes": 75743232,
+      "usage": {
+        "input": 2195,
+        "output": 3,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.00033105,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 4
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 3.4169,
+      "rss_bytes": 75726848,
+      "usage": {
+        "input": 19,
+        "output": 3,
+        "reasoning": 0,
+        "cacheRead": 2176
+      },
+      "cost_usd": 1.1178e-05,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 5
+    }
+  ],
+  "summary": {
+    "runs": 5,
+    "settled_runs": 5,
+    "ok_runs": 5,
+    "median_wall_s": 2.7037,
+    "min_wall_s": 2.321,
+    "max_wall_s": 3.68,
+    "median_rss_bytes": 75726848,
+    "min_rss_bytes": 75628544,
+    "max_rss_bytes": 75939840,
+    "median_input_tokens": 2195,
+    "median_output_tokens": 3,
+    "median_reasoning_tokens": 0,
+    "median_cache_read_tokens": 0,
+    "median_cost_usd": 0.00033105
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "date": "2026-11-16",
+  "timestamp": "2026-11-16T22:20:36.089571+00:00",
+  "platform": "darwin-arm64",
+  "binary": "/Users/filip/.local/bin/pi-bolt",
+  "binary_version": "1.5.2 (Pi-Bolt 1.2.1, darwin-arm64, JIT off)",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "thinking": "off",
+  "prompt": "Reply with the single word: ready",
+  "runs": [
+    {
+      "exit_code": 0,
+      "wall_s": 3.5904,
+      "rss_bytes": 75956224,
+      "usage": {
+        "input": 2170,
+        "output": 2,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.0003267,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 1
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 2.0567,
+      "rss_bytes": 75677696,
+      "usage": {
+        "input": 2170,
+        "output": 2,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.0003267,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 2
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 3.0923,
+      "rss_bytes": 75907072,
+      "usage": {
+        "input": 2170,
+        "output": 2,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.0003267,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 3
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 3.0025,
+      "rss_bytes": 75988992,
+      "usage": {
+        "input": 2170,
+        "output": 2,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.0003267,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 4
+    },
+    {
+      "exit_code": 0,
+      "wall_s": 2.6327,
+      "rss_bytes": 75825152,
+      "usage": {
+        "input": 2170,
+        "output": 2,
+        "reasoning": 0,
+        "cacheRead": 0
+      },
+      "cost_usd": 0.0003267,
+      "settled": true,
+      "stop_reason": "stop",
+      "text": "ready",
+      "run": 5
+    }
+  ],
+  "summary": {
+    "runs": 5,
+    "settled_runs": 5,
+    "ok_runs": 5,
+    "median_wall_s": 3.0025,
+    "min_wall_s": 2.0567,
+    "max_wall_s": 3.5904,
+    "median_rss_bytes": 75907072,
+    "min_rss_bytes": 75677696,
+    "max_rss_bytes": 75988992,
+    "median_input_tokens": 2170,
+    "median_output_tokens": 2,
+    "median_reasoning_tokens": 0,
+    "median_cache_read_tokens": 0,
+    "median_cost_usd": 0.0003267
+  }
+}
