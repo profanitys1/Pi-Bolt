@@ -1,0 +1,16 @@
+{
+  "defaultProvider": "deepseek",
+  "defaultModel": "deepseek-flash",
+  "defaultThinkingLevel": "low",
+  "skills": ["!**"],
+  "compaction": {
+    "enabled": false
+  },
+  "defaultProjectTrust": "never",
+  "enableInstallTelemetry": false,
+  "enableAnalytics": false,
+  "retry": {
+    "enabled": true,
+    "maxRetries": 3
+  }
+}
