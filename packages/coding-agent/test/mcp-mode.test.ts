@@ -1,5 +1,14 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -36,7 +45,7 @@ const SCRIPTS: Record<string, Step[]> = {
 };
 
 /** The model, token cap, and user messages of the requests the fake model got. */
-const requests: { model: string; max_tokens?: number; users: string[] }[] = [];
+const requests: { model: string; max_tokens?: number; reasoning_effort?: string; users: string[] }[] = [];
 
 function sse(delta: Record<string, unknown>, finish: string | null = null): string {
 	return `data: ${JSON.stringify({
@@ -63,6 +72,7 @@ function startFakeModel(): Promise<Server> {
 				model: string;
 				max_tokens?: number;
 				max_completion_tokens?: number;
+				reasoning_effort?: string;
 				messages?: Array<{ role: string; content: unknown }>;
 			};
 			let turn = 0;
@@ -83,6 +93,7 @@ function startFakeModel(): Promise<Server> {
 			requests.push({
 				model: request.model,
 				max_tokens: request.max_tokens ?? request.max_completion_tokens,
+				reasoning_effort: request.reasoning_effort,
 				users,
 			});
 			const script = SCRIPTS[Object.keys(SCRIPTS).find((name) => prompt.includes(`[${name}]`)) ?? "hello"];
@@ -231,6 +242,16 @@ class McpTestClient {
 	}
 }
 
+function readSessionEntries(sessionDir: string, sessionId: string): Array<Record<string, unknown>> {
+	const file = readdirSync(sessionDir).find((name) => name.endsWith(`_${sessionId}.jsonl`));
+	if (!file) throw new Error(`Session file not found for ${sessionId} in ${sessionDir}`);
+	return readFileSync(join(sessionDir, file), "utf8")
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
 describe("MCP mode", () => {
 	let server: Server;
 	let root: string;
@@ -267,6 +288,8 @@ describe("MCP mode", () => {
 		const models = [
 			{ id: "fake-model", contextWindow: 200000, maxTokens: 8192 },
 			{ id: "other-model", contextWindow: 200000, maxTokens: 8192 },
+			{ id: "thinking-model", contextWindow: 200000, maxTokens: 4096, reasoning: true },
+			{ id: "small-model", contextWindow: 200000, maxTokens: 512 },
 		];
 		writeFileSync(
 			join(agentDir, "models.json"),
@@ -548,6 +571,159 @@ describe("MCP mode", () => {
 		const fractional = await client.call({ prompt: "[hello] fractional", maxTokens: 1.5 });
 		expect(fractional.isError).toBe(true);
 		expect(requests).toHaveLength(before);
+	});
+
+	it("preserves thinkingLevel and avoids model or thinking entries on maxTokens-only calls", async () => {
+		const sessionDir = join(root, "sessions-max-tokens-only");
+		mkdirSync(sessionDir, { recursive: true });
+		const { client } = await startClient(["--session-dir", sessionDir]);
+
+		const first = await client.call({
+			prompt: "[hello] set model and thinking",
+			model: "fake/thinking-model",
+			thinking: "high",
+		});
+		expect(first.isError).toBeUndefined();
+		const { sessionId } = first.structuredContent;
+		expect(requests.at(-1)?.reasoning_effort).toBe("high");
+
+		const beforeEntries = readSessionEntries(sessionDir, sessionId);
+		const modelChangesBefore = beforeEntries.filter((entry) => entry.type === "model_change");
+		const thinkingChangesBefore = beforeEntries.filter((entry) => entry.type === "thinking_level_change");
+
+		const second = await client.call({
+			prompt: "[hello] cap only",
+			sessionId,
+			maxTokens: 256,
+		});
+		expect(second.isError).toBeUndefined();
+		expect(requests.at(-1)).toMatchObject({
+			model: "thinking-model",
+			max_tokens: 256,
+			reasoning_effort: "high",
+		});
+
+		const afterEntries = readSessionEntries(sessionDir, sessionId);
+		expect(afterEntries.filter((entry) => entry.type === "model_change")).toHaveLength(modelChangesBefore.length);
+		expect(afterEntries.filter((entry) => entry.type === "thinking_level_change")).toHaveLength(
+			thinkingChangesBefore.length,
+		);
+		expect(afterEntries.some((entry) => entry.type === "custom" && entry.customType === "pi:mcp-max-tokens")).toBe(
+			true,
+		);
+	});
+
+	it("rejects invalid thinking before mutating model, maxTokens, or thinkingLevel", async () => {
+		const sessionDir = join(root, "sessions-invalid-thinking");
+		mkdirSync(sessionDir, { recursive: true });
+		const { client } = await startClient(["--session-dir", sessionDir]);
+
+		const first = await client.call({
+			prompt: "[hello] baseline",
+			model: "fake/thinking-model",
+			thinking: "low",
+			maxTokens: 300,
+		});
+		expect(first.isError).toBeUndefined();
+		const { sessionId } = first.structuredContent;
+		expect(requests.at(-1)).toMatchObject({
+			model: "thinking-model",
+			max_tokens: 300,
+			reasoning_effort: "low",
+		});
+
+		const beforeRequests = requests.length;
+		const modelChangesBefore = readSessionEntries(sessionDir, sessionId).filter(
+			(entry) => entry.type === "model_change",
+		);
+		const rejected = await client.call({
+			prompt: "[hello] bad thinking for fake-model",
+			sessionId,
+			model: "fake/fake-model",
+			maxTokens: 500,
+			thinking: "high",
+		});
+		expect(rejected.isError).toBe(true);
+		expect(rejected.content[0].text).toContain("Unknown thinking level");
+		expect(requests).toHaveLength(beforeRequests);
+
+		const after = await client.call({
+			prompt: "[hello] after rejection",
+			sessionId,
+		});
+		expect(after.isError).toBeUndefined();
+		expect(requests.at(-1)).toMatchObject({
+			model: "thinking-model",
+			max_tokens: 300,
+			reasoning_effort: "low",
+		});
+
+		const entries = readSessionEntries(sessionDir, sessionId);
+		const modelChanges = entries.filter((entry) => entry.type === "model_change");
+		expect(modelChanges).toHaveLength(modelChangesBefore.length);
+	});
+
+	it("preserves maxTokens cap when reopening a session in a new client", async () => {
+		const sessionDir = join(root, "sessions-reopen-cap");
+		mkdirSync(sessionDir, { recursive: true });
+
+		const first = await startClient(["--session-dir", sessionDir]);
+		const created = await first.client.call({ prompt: "[hello] capped before reopen", maxTokens: 256 });
+		expect(created.isError).toBeUndefined();
+		const { sessionId } = created.structuredContent;
+		expect(requests.at(-1)?.max_tokens).toBe(256);
+		await first.client.stop();
+
+		const second = await startClient(["--session-dir", sessionDir]);
+		const reopened = await second.client.call({ prompt: "[hello] reopened", sessionId });
+		expect(reopened.isError).toBeUndefined();
+		expect(requests.at(-1)?.max_tokens).toBe(256);
+	});
+
+	it("applies maxTokens with a model switch and validates against the new model maximum", async () => {
+		const { client } = await startClient();
+
+		const first = await client.call({ prompt: "[hello] start on fake", maxTokens: 1024 });
+		expect(first.isError).toBeUndefined();
+		const { sessionId } = first.structuredContent;
+		expect(requests.at(-1)).toMatchObject({ model: "fake-model", max_tokens: 1024 });
+
+		const beforeRequests = requests.length;
+		const tooHigh = await client.call({
+			prompt: "[hello] too high for small-model",
+			sessionId,
+			model: "fake/small-model",
+			maxTokens: 1024,
+		});
+		expect(tooHigh.isError).toBe(true);
+		expect(tooHigh.content[0].text).toContain("512");
+		expect(requests).toHaveLength(beforeRequests);
+
+		const switched = await client.call({
+			prompt: "[hello] valid for small-model",
+			sessionId,
+			model: "fake/small-model",
+			maxTokens: 400,
+		});
+		expect(switched.isError).toBeUndefined();
+		expect(requests.at(-1)).toMatchObject({ model: "small-model", max_tokens: 400 });
+
+		const raised = await client.call({
+			prompt: "[hello] raise back on fake-model",
+			sessionId,
+			model: "fake/fake-model",
+			maxTokens: 1024,
+		});
+		expect(raised.isError).toBeUndefined();
+		expect(requests.at(-1)).toMatchObject({ model: "fake-model", max_tokens: 1024 });
+
+		const bounded = await client.call({
+			prompt: "[hello] switch without maxTokens keeps cap bounded by model max",
+			sessionId,
+			model: "fake/small-model",
+		});
+		expect(bounded.isError).toBeUndefined();
+		expect(requests.at(-1)).toMatchObject({ model: "small-model", max_tokens: 512 });
 	});
 
 	it("reports bad arguments and unknown tools", async () => {

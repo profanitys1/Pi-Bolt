@@ -13,7 +13,8 @@
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { Readable } from "node:stream";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Agent, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { type Api, getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import { COMMAND_NAME, getDocsPath, PRODUCT_NAME, VERSION } from "../../config.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import {
@@ -53,6 +54,7 @@ const PROGRESS_TEXT_CHARS = 200;
 const PROGRESS_OUTPUT_INTERVAL_MS = 1000;
 /** With nothing else to report for this long, progress says again what Pi is doing. */
 const PROGRESS_HEARTBEAT_MS = 5000;
+const MAX_TOKENS_ENTRY = "pi:mcp-max-tokens";
 
 const INSTRUCTIONS = [
 	`${PRODUCT_NAME} is a coding agent. Use \`prompt\` to give it a task in a directory: it reads, edits and runs commands`,
@@ -427,6 +429,8 @@ type Usage = {
 class PiSession {
 	private readonly server: McpServer;
 	private readonly runtime: AgentSessionRuntime;
+	private readonly wrappedAgents = new WeakSet<Agent>();
+	private maxTokensCap: number | undefined;
 	private queue: Promise<unknown> = Promise.resolve();
 	private pending = 0;
 	private disposed = false;
@@ -460,6 +464,8 @@ class PiSession {
 
 	private async rebind(): Promise<void> {
 		const session = this.session;
+		this.installMaxTokensCap(session);
+		this.restoreMaxTokensCap(session);
 		await session.bindExtensions({
 			// Without forms to answer them, dialogs get no answer, as in print mode.
 			uiContext: this.server.elicitsForms ? this.createUIContext() : undefined,
@@ -479,6 +485,7 @@ class PiSession {
 						replaceInstructions: options?.replaceInstructions,
 						label: options?.label,
 					});
+					if (!result.cancelled) this.restoreMaxTokensCap(this.session);
 					return { cancelled: result.cancelled };
 				},
 				switchSession: async (sessionPath, options) => this.runtime.switchSession(sessionPath, options),
@@ -488,6 +495,32 @@ class PiSession {
 			},
 			onError: (err) => console.error(`Extension error (${err.extensionPath}): ${err.error}`),
 		});
+	}
+
+	private installMaxTokensCap(session: AgentSession): void {
+		if (this.wrappedAgents.has(session.agent)) return;
+		this.wrappedAgents.add(session.agent);
+		const previousPrepareRequest = session.agent.prepareRequest;
+		session.agent.prepareRequest = async (request, signal) => {
+			const result = (await previousPrepareRequest?.(request, signal)) ?? undefined;
+			const model = result?.model ?? request.model;
+			if (this.maxTokensCap === undefined || !model) return result;
+			return { ...result, model: { ...model, maxTokens: Math.min(model.maxTokens, this.maxTokensCap) } };
+		};
+	}
+
+	private restoreMaxTokensCap(session: AgentSession): void {
+		const branch = session.sessionManager.getBranch();
+		for (let i = branch.length - 1; i >= 0; i--) {
+			const entry = branch[i];
+			if (entry.type !== "custom" || entry.customType !== MAX_TOKENS_ENTRY) continue;
+			const maxTokens = isRecord(entry.data) ? entry.data.maxTokens : undefined;
+			if (typeof maxTokens === "number" && Number.isInteger(maxTokens) && maxTokens >= 1) {
+				this.maxTokensCap = maxTokens;
+				return;
+			}
+		}
+		this.maxTokensCap = undefined;
 	}
 
 	async dispose(): Promise<void> {
@@ -534,20 +567,26 @@ class PiSession {
 					`maxTokens (${args.maxTokens}) exceeds model maximum (${modelMaxTokens}) for ${modelKey(targetModel)}`,
 				);
 			}
-			targetModel = { ...targetModel, maxTokens: args.maxTokens };
 		}
-		if (args.model !== undefined || args.maxTokens !== undefined) {
-			const previousThinking = session.thinkingLevel;
-			await session.setModel(targetModel, { persist: false });
-			if (args.model === undefined && args.thinking === undefined) {
-				session.setThinkingLevel(previousThinking, { persist: false });
-			}
-		}
+		let nextThinkingLevel: ThinkingLevel | undefined;
 		if (args.thinking !== undefined) {
-			const levels = session.getAvailableThinkingLevels();
+			const levels =
+				args.model !== undefined
+					? (getSupportedThinkingLevels(targetModel) as ThinkingLevel[])
+					: session.getAvailableThinkingLevels();
 			const level = levels.find((candidate) => candidate === args.thinking);
 			if (!level) return toolError(`Unknown thinking level: ${args.thinking}. Available: ${levels.join(", ")}`);
-			session.setThinkingLevel(level, { persist: false });
+			nextThinkingLevel = level;
+		}
+		if (args.model !== undefined) {
+			await session.setModel(targetModel, { persist: false });
+		}
+		if (args.maxTokens !== undefined && this.maxTokensCap !== args.maxTokens) {
+			this.maxTokensCap = args.maxTokens;
+			session.sessionManager.appendCustomEntry(MAX_TOKENS_ENTRY, { maxTokens: args.maxTokens });
+		}
+		if (nextThinkingLevel !== undefined) {
+			session.setThinkingLevel(nextThinkingLevel, { persist: false });
 		}
 
 		let usage: Usage | undefined;

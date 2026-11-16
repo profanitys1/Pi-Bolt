@@ -47,7 +47,7 @@ Other flags work as on the command line, for example `["--mcp", "--model", "anth
 | `sessionId` | Continue this session instead of starting one |
 | `model` | Model to use from now on in the session, as `provider/model` |
 | `thinking` | Thinking level to use from now on in the session: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
-| `maxTokens` | Maximum output tokens to use from now on in the session (positive integer, at most the model's maximum) |
+| `maxTokens` | Maximum output tokens to use from now on in the session (positive integer, at most the model's maximum; stays bounded by any newly selected model's maximum) |
 
 The result has Pi's answer and a `sessionId: <id>` line, and as structured content `sessionId`, `text`, `stopReason`
 (`end_turn`, `max_tokens`, `cancelled` or `error`) and `usage` (tokens, and the cost when the model has prices). A failed
