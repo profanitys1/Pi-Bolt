@@ -4,10 +4,15 @@ import {
 	applyDeepSeekFamilyRules,
 	DEEPSEEK_COMPAT,
 	DEEPSEEK_V4_FLASH_THINKING_LEVEL_MAP,
-	DEEPSEEK_V4_THINKING_LEVEL_MAP,
 } from "../catalog/families/deepseek.ts";
 import { convertMessages } from "../src/api/openai-completions.ts";
-import { getModel, getSupportedThinkingLevels, normalizeContext, streamSimple } from "../src/compat.ts";
+import {
+	clampThinkingLevel,
+	getModel,
+	getSupportedThinkingLevels,
+	normalizeContext,
+	streamSimple,
+} from "../src/compat.ts";
 import type { AssistantMessage, Model, SimpleStreamOptions, ToolResultMessage, Usage } from "../src/types.ts";
 
 const mockState = vi.hoisted(() => ({
@@ -155,19 +160,79 @@ function syntheticDeepSeekModel(provider: string, id: string): Model<"openai-com
 	};
 }
 
+function buildAssistantToolHistory(model: Model<"openai-completions">) {
+	const now = Date.now();
+	const assistantWithThinking: AssistantMessage = {
+		role: "assistant",
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		content: [
+			{ type: "thinking", thinking: "plan step", thinkingSignature: "reasoning_content" },
+			{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md" } },
+		],
+		usage: emptyUsage,
+		stopReason: "toolUse",
+		timestamp: now,
+	};
+	const toolResultOne: ToolResultMessage = {
+		role: "toolResult",
+		toolCallId: "call_1",
+		toolName: "read",
+		content: [{ type: "text", text: "contents" }],
+		isError: false,
+		timestamp: now + 1,
+	};
+	const assistantWithoutThinking: AssistantMessage = {
+		role: "assistant",
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		content: [{ type: "toolCall", id: "call_2", name: "read", arguments: { path: "package.json" } }],
+		usage: emptyUsage,
+		stopReason: "toolUse",
+		timestamp: now + 2,
+	};
+	const toolResultTwo: ToolResultMessage = {
+		role: "toolResult",
+		toolCallId: "call_2",
+		toolName: "read",
+		content: [{ type: "text", text: "{}" }],
+		isError: false,
+		timestamp: now + 3,
+	};
+
+	return normalizeContext({
+		messages: [
+			{ role: "user", content: "Read files", timestamp: now - 1 },
+			assistantWithThinking,
+			toolResultOne,
+			assistantWithoutThinking,
+			toolResultTwo,
+		],
+	});
+}
+
 describe("openai-completions DeepSeek wire contract", () => {
 	beforeEach(() => {
 		mockState.lastParams = undefined;
 		mockState.chunks = undefined;
 	});
 
-	it("sends disabled thinking without reasoning_effort for deepseek-flash when reasoning is undefined", async () => {
-		const model = getModel("deepseek", "deepseek-flash")!;
-		const params = await captureSimpleParams(model, { reasoning: undefined });
+	it.each([
+		{ name: "deepseek/deepseek-flash", getTarget: () => getModel("deepseek", "deepseek-flash")! },
+		{ name: "opencode-go/deepseek-v4.1-flash", getTarget: () => getModel("opencode-go", "deepseek-v4.1-flash")! },
+	])(
+		"sends disabled thinking without reasoning_effort for $name when reasoning is undefined",
+		async ({ getTarget }) => {
+			const model = getTarget();
+			expect(clampThinkingLevel(model, "off")).toBe("off");
+			const params = await captureSimpleParams(model, { reasoning: undefined });
 
-		expect(params.thinking).toEqual({ type: "disabled" });
-		expect(params.reasoning_effort).toBeUndefined();
-	});
+			expect(params.thinking).toEqual({ type: "disabled" });
+			expect(params.reasoning_effort).toBeUndefined();
+		},
+	);
 
 	it.each(["low", "high", "max"] as const)(
 		"sends enabled thinking and reasoning_effort=%s for deepseek-flash",
@@ -200,78 +265,45 @@ describe("openai-completions DeepSeek wire contract", () => {
 		expect(params.reasoning_effort).toBe("high");
 	});
 
-	it("exposes expected supported thinking levels for deepseek-flash and deepseek-v4-pro", () => {
-		expect(getSupportedThinkingLevels(getModel("deepseek", "deepseek-flash")!)).toEqual([
-			"off",
-			"low",
-			"high",
-			"max",
-		]);
-		expect(getSupportedThinkingLevels(getModel("deepseek", "deepseek-v4-pro")!)).toEqual(["off", "high", "max"]);
+	it("exposes expected supported thinking levels and catalog compat for real DeepSeek models", () => {
+		const deepseekFlash = getModel("deepseek", "deepseek-flash")!;
+		const opencodeGoFlash = getModel("opencode-go", "deepseek-v4.1-flash")!;
+		const deepseekPro = getModel("deepseek", "deepseek-v4-pro")!;
+		const openRouterFlash = getModel("openrouter", "~deepseek/deepseek-flash-latest")!;
+
+		expect(getSupportedThinkingLevels(deepseekFlash)).toEqual(["off", "low", "high", "max"]);
+		expect(getSupportedThinkingLevels(opencodeGoFlash)).toEqual(["off", "low", "high", "max"]);
+		expect(getSupportedThinkingLevels(deepseekPro)).toEqual(["off", "high", "max"]);
+		expect(getSupportedThinkingLevels(openRouterFlash)).toEqual(["off", "low", "high", "max"]);
+
+		expect(opencodeGoFlash.thinkingLevelMap?.off).toBeUndefined();
+		expect(opencodeGoFlash.compat?.thinkingFormat).toBe("deepseek");
+		expect(openRouterFlash.compat?.requiresReasoningContentOnAssistantMessages).toBe(true);
+		expect(openRouterFlash.compat?.thinkingFormat).toBe("openrouter");
 	});
 
-	it("preserves reasoning_content and backfills empty reasoning_content on assistant tool-call turns", () => {
-		const model = getModel("deepseek", "deepseek-flash")!;
-		const now = Date.now();
-		const assistantWithThinking: AssistantMessage = {
-			role: "assistant",
-			api: model.api,
-			provider: model.provider,
-			model: model.id,
-			content: [
-				{ type: "thinking", thinking: "plan step", thinkingSignature: "reasoning_content" },
-				{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md" } },
-			],
-			usage: emptyUsage,
-			stopReason: "toolUse",
-			timestamp: now,
-		};
-		const toolResultOne: ToolResultMessage = {
-			role: "toolResult",
-			toolCallId: "call_1",
-			toolName: "read",
-			content: [{ type: "text", text: "contents" }],
-			isError: false,
-			timestamp: now + 1,
-		};
-		const assistantWithoutThinking: AssistantMessage = {
-			role: "assistant",
-			api: model.api,
-			provider: model.provider,
-			model: model.id,
-			content: [{ type: "toolCall", id: "call_2", name: "read", arguments: { path: "package.json" } }],
-			usage: emptyUsage,
-			stopReason: "toolUse",
-			timestamp: now + 2,
-		};
-		const toolResultTwo: ToolResultMessage = {
-			role: "toolResult",
-			toolCallId: "call_2",
-			toolName: "read",
-			content: [{ type: "text", text: "{}" }],
-			isError: false,
-			timestamp: now + 3,
-		};
+	it.each([
+		{ name: "deepseek/deepseek-flash", getTarget: () => getModel("deepseek", "deepseek-flash")! },
+		{
+			name: "openrouter/~deepseek/deepseek-flash-latest",
+			getTarget: () => getModel("openrouter", "~deepseek/deepseek-flash-latest")!,
+		},
+	])(
+		"preserves reasoning_content and backfills empty reasoning_content on assistant tool-call turns for $name",
+		({ getTarget }) => {
+			const model = getTarget();
+			const messages = convertMessages(model, buildAssistantToolHistory(model), {
+				...deepSeekCompat,
+				requiresReasoningContentOnAssistantMessages: false,
+				...(model.compat ?? {}),
+			});
 
-		const messages = convertMessages(
-			model,
-			normalizeContext({
-				messages: [
-					{ role: "user", content: "Read files", timestamp: now - 1 },
-					assistantWithThinking,
-					toolResultOne,
-					assistantWithoutThinking,
-					toolResultTwo,
-				],
-			}),
-			deepSeekCompat,
-		);
-
-		const assistantMessages = messages.filter((message) => message.role === "assistant");
-		expect(assistantMessages).toHaveLength(2);
-		expect(assistantMessages[0]).toMatchObject({ role: "assistant", reasoning_content: "plan step" });
-		expect(assistantMessages[1]).toMatchObject({ role: "assistant", reasoning_content: "" });
-	});
+			const assistantMessages = messages.filter((message) => message.role === "assistant");
+			expect(assistantMessages).toHaveLength(2);
+			expect(assistantMessages[0]).toMatchObject({ role: "assistant", reasoning_content: "plan step" });
+			expect(assistantMessages[1]).toMatchObject({ role: "assistant", reasoning_content: "" });
+		},
+	);
 
 	it.each([
 		{ provider: "deepseek", id: "deepseek-flash" },
@@ -288,19 +320,13 @@ describe("openai-completions DeepSeek wire contract", () => {
 		expect(model.thinkingLevelMap?.low).toBe("low");
 	});
 
-	it("applies replay compat and openrouter thinking levels to synthetic openrouter ~deepseek/deepseek-flash-latest", () => {
+	it("applies replay compat without deepseek thinkingFormat to synthetic openrouter ~deepseek/deepseek-flash-latest", () => {
 		const model = syntheticDeepSeekModel("openrouter", "~deepseek/deepseek-flash-latest");
 		applyDeepSeekCompatRules(model);
-		applyDeepSeekFamilyRules(model);
 
 		expect(model.compat).toEqual({
 			requiresReasoningContentOnAssistantMessages: true,
 		});
 		expect(model.compat?.thinkingFormat).toBeUndefined();
-		expect(model.thinkingLevelMap).toEqual({
-			...DEEPSEEK_V4_THINKING_LEVEL_MAP,
-			xhigh: "xhigh",
-			max: null,
-		});
 	});
 });

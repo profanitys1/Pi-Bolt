@@ -15,7 +15,6 @@ import {
 import { googleThinkingLevels } from "../families/google.ts";
 import { isKimiK3FamilyId } from "../families/kimi.ts";
 import { enableOpenAiGrammarTools, enableOpenAiMidConvoSystemMessages } from "../families/openai.ts";
-import { getEffortThinkingLevelMap } from "../reasoning.ts";
 import type { ModelsDevModel } from "../sources/models-dev.ts";
 
 // OpenAI-compatible endpoints reject the long prompt-cache retention parameter for these models.
@@ -119,11 +118,7 @@ export function opencodeModels(ctx: ProviderContext): ChatModel[] {
 				};
 			}
 			const thinkingLevelMap =
-				api === "google-generative-ai"
-					? googleThinkingLevels(model.id, source.reasoningOptions)
-					: provider === "opencode-go" && model.id === "deepseek-v4.1-flash"
-						? getEffortThinkingLevelMap(source.reasoningOptions ?? [])
-						: undefined;
+				api === "google-generative-ai" ? googleThinkingLevels(model.id, source.reasoningOptions) : undefined;
 			const result: ChatModel = { ...model, api, baseUrl, ...(thinkingLevelMap ? { thinkingLevelMap } : {}) };
 			if (compat) result.compat = compat;
 			// OpenCode variants list Claude Sonnet 4/4.5 with 1M context, actual limit is 200K.
