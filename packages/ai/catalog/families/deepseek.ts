@@ -40,7 +40,9 @@ const QWEN_FORMAT_PROVIDERS = new Set([
 const NATIVE_EFFORT_PROVIDERS = new Set(["openrouter", "opencode"]);
 
 function isDeepSeekV4(model: ChatModel): model is Model<"openai-completions"> {
-	return model.api === "openai-completions" && model.id.includes("deepseek-v4");
+	return (
+		model.api === "openai-completions" && (model.id.includes("deepseek-v4") || model.id.includes("deepseek-flash"))
+	);
 }
 
 /** DeepSeek V4 needs its reasoning content replayed on every host. */
@@ -63,7 +65,9 @@ export function applyDeepSeekFamilyRules(model: ChatModel): void {
 		mergeThinking(model, AZURE_DEEPSEEK_V4_THINKING_LEVEL_MAP);
 	} else if (
 		(model.provider === "deepseek" || model.provider === "opencode" || model.provider === "opencode-go") &&
-		model.id.includes("deepseek-v4-flash")
+		(model.id.includes("deepseek-v4-flash") ||
+			model.id.includes("deepseek-v4.1-flash") ||
+			model.id.includes("deepseek-flash"))
 	) {
 		mergeThinking(model, DEEPSEEK_V4_FLASH_THINKING_LEVEL_MAP);
 	} else {
