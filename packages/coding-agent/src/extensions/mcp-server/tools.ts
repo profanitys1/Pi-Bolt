@@ -30,6 +30,7 @@ export interface PromptArgs {
 	sessionId?: string;
 	model?: string;
 	thinking?: string;
+	maxTokens?: number;
 }
 
 export interface ListSessionsArgs {
@@ -79,6 +80,11 @@ export const PROMPT_TOOL: McpTool = {
 				type: "string",
 				enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
 				description: "Thinking level to use from now on in this session",
+			},
+			maxTokens: {
+				type: "integer",
+				minimum: 1,
+				description: "Maximum output tokens to use from now on in this session",
 			},
 		},
 		required: ["prompt"],

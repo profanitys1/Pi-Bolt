@@ -35,8 +35,8 @@ const SCRIPTS: Record<string, Step[]> = {
 	slow: [{ hang: true }],
 };
 
-/** The model and user messages of the requests the fake model got. */
-const requests: { model: string; users: string[] }[] = [];
+/** The model, token cap, and user messages of the requests the fake model got. */
+const requests: { model: string; max_tokens?: number; users: string[] }[] = [];
 
 function sse(delta: Record<string, unknown>, finish: string | null = null): string {
 	return `data: ${JSON.stringify({
@@ -61,6 +61,8 @@ function startFakeModel(): Promise<Server> {
 			}
 			const request = JSON.parse(body || "{}") as {
 				model: string;
+				max_tokens?: number;
+				max_completion_tokens?: number;
 				messages?: Array<{ role: string; content: unknown }>;
 			};
 			let turn = 0;
@@ -78,7 +80,11 @@ function startFakeModel(): Promise<Server> {
 					turn++;
 				}
 			}
-			requests.push({ model: request.model, users });
+			requests.push({
+				model: request.model,
+				max_tokens: request.max_tokens ?? request.max_completion_tokens,
+				users,
+			});
 			const script = SCRIPTS[Object.keys(SCRIPTS).find((name) => prompt.includes(`[${name}]`)) ?? "hello"];
 			const step = script[Math.min(turn, script.length - 1)];
 			res.writeHead(200, { "content-type": "text/event-stream" });
@@ -493,6 +499,55 @@ describe("MCP mode", () => {
 		expect(unknown.content[0].text).toContain("Unknown model");
 		const level = await client.call({ prompt: "hi", thinking: "extreme" });
 		expect(level.isError).toBe(true);
+	});
+
+	it("includes maxTokens in the prompt tool schema", async () => {
+		const { client } = await startClient();
+		const { tools } = await client.request<{ tools: McpTool[] }>("tools/list", {});
+		const promptTool = tools.find((tool) => tool.name === "prompt");
+		const properties = promptTool?.inputSchema.properties as Record<string, unknown>;
+		expect(properties.maxTokens).toMatchObject({ type: "integer", minimum: 1 });
+	});
+
+	it("caps max_tokens for the session when maxTokens is given", async () => {
+		const { client } = await startClient();
+		const first = await client.call({ prompt: "[hello] capped", maxTokens: 256 });
+		expect(first.isError).toBeUndefined();
+		expect(requests.at(-1)?.max_tokens).toBe(256);
+
+		const second = await client.call({
+			prompt: "[hello] still capped",
+			sessionId: first.structuredContent.sessionId,
+		});
+		expect(second.isError).toBeUndefined();
+		expect(requests.at(-1)?.max_tokens).toBe(256);
+
+		const raised = await client.call({
+			prompt: "[hello] raised cap",
+			sessionId: first.structuredContent.sessionId,
+			maxTokens: 512,
+		});
+		expect(raised.isError).toBeUndefined();
+		expect(requests.at(-1)?.max_tokens).toBe(512);
+	});
+
+	it("rejects maxTokens above the model maximum without calling the provider", async () => {
+		const { client } = await startClient();
+		const before = requests.length;
+		const result = await client.call({ prompt: "[hello] too high", maxTokens: 500000 });
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("8192");
+		expect(requests).toHaveLength(before);
+	});
+
+	it("rejects non-positive or non-integer maxTokens without calling the provider", async () => {
+		const { client } = await startClient();
+		const before = requests.length;
+		const zero = await client.call({ prompt: "[hello] zero", maxTokens: 0 });
+		expect(zero.isError).toBe(true);
+		const fractional = await client.call({ prompt: "[hello] fractional", maxTokens: 1.5 });
+		expect(fractional.isError).toBe(true);
+		expect(requests).toHaveLength(before);
 	});
 
 	it("reports bad arguments and unknown tools", async () => {

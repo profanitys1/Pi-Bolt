@@ -513,13 +513,35 @@ class PiSession {
 	): Promise<McpToolResult> {
 		if (signal.aborted) return toolError("Cancelled");
 		const session = this.session;
+		let targetModel = session.model;
 		if (args.model !== undefined) {
 			const scoped = session.scopedModels;
 			const models: Model<Api>[] =
 				scoped.length > 0 ? scoped.map((entry) => entry.model) : [...session.modelRuntime.getAvailableSnapshot()];
 			const model = findExactModelReferenceMatch(args.model, models);
 			if (!model) return toolError(`Unknown model: ${args.model}. Available: ${models.map(modelKey).join(", ")}`);
-			await session.setModel(model, { persist: false });
+			targetModel = model;
+		}
+		if (!targetModel) return toolError(`No models available. ${setupHelp()}`);
+		if (args.maxTokens !== undefined) {
+			const modelMaxTokens =
+				args.model !== undefined
+					? targetModel.maxTokens
+					: (session.modelRuntime.getModel(targetModel.provider, targetModel.id)?.maxTokens ??
+						targetModel.maxTokens);
+			if (args.maxTokens > modelMaxTokens) {
+				return toolError(
+					`maxTokens (${args.maxTokens}) exceeds model maximum (${modelMaxTokens}) for ${modelKey(targetModel)}`,
+				);
+			}
+			targetModel = { ...targetModel, maxTokens: args.maxTokens };
+		}
+		if (args.model !== undefined || args.maxTokens !== undefined) {
+			const previousThinking = session.thinkingLevel;
+			await session.setModel(targetModel, { persist: false });
+			if (args.model === undefined && args.thinking === undefined) {
+				session.setThinkingLevel(previousThinking, { persist: false });
+			}
 		}
 		if (args.thinking !== undefined) {
 			const levels = session.getAvailableThinkingLevels();
@@ -527,7 +549,6 @@ class PiSession {
 			if (!level) return toolError(`Unknown thinking level: ${args.thinking}. Available: ${levels.join(", ")}`);
 			session.setThinkingLevel(level, { persist: false });
 		}
-		if (!session.model) return toolError(`No models available. ${setupHelp()}`);
 
 		let usage: Usage | undefined;
 		let last: { text: string; stopReason: string; errorMessage?: string } | undefined;
@@ -659,6 +680,12 @@ function promptArgs(args: Record<string, unknown>): PromptArgs | string {
 	if (typeof args.prompt !== "string" || args.prompt.trim() === "") return "`prompt` must be a non-empty string";
 	for (const key of ["cwd", "sessionId", "model", "thinking"] as const) {
 		if (args[key] !== undefined && typeof args[key] !== "string") return `\`${key}\` must be a string`;
+	}
+	if (
+		args.maxTokens !== undefined &&
+		(typeof args.maxTokens !== "number" || !Number.isInteger(args.maxTokens) || args.maxTokens < 1)
+	) {
+		return "`maxTokens` must be a positive integer";
 	}
 	return args as unknown as PromptArgs;
 }
