@@ -2,16 +2,18 @@
 set -euo pipefail
 
 KIT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$KIT_DIR/../.." && pwd)"
 
 usage() {
 	cat <<'EOF'
-Usage: run.sh [--print-command] [--help] [pi-bolt options...] [prompt]
+Usage: run.sh [--use-dist] [--print-command] [--help] [pi-bolt options...] [prompt]
 
 Runs Pi-Bolt in isolated headless worker mode with a temporary
 PI_CODING_AGENT_DIR populated from examples/worker/agent/ and
 examples/worker/extensions/worker-guard.ts.
 
 Options:
+  --use-dist       Run packages/coding-agent/dist/cli.js directly with bun.
   --print-command  Print the resolved command and exit without running it.
   --help, -h       Show this help text and exit.
 
@@ -38,30 +40,54 @@ resolve_pi_bin() {
 }
 
 PRINT_COMMAND=0
+USE_DIST=0
 HAS_MODE=0
 FORWARD_ARGS=()
-PAST_DOUBLE_DASH=0
 
-for arg in "$@"; do
-	if [ "$PAST_DOUBLE_DASH" -eq 0 ]; then
-		case "$arg" in
-			--help|-h)
-				usage
-				exit 0
-				;;
-			--print-command)
-				PRINT_COMMAND=1
-				continue
-				;;
-			--)
-				PAST_DOUBLE_DASH=1
-				;;
-			--mode|--mode=*)
-				HAS_MODE=1
-				;;
-		esac
-	fi
-	FORWARD_ARGS+=("$arg")
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--help|-h)
+			usage
+			exit 0
+			;;
+		--print-command)
+			PRINT_COMMAND=1
+			shift
+			continue
+			;;
+		--use-dist)
+			USE_DIST=1
+			shift
+			continue
+			;;
+		--)
+			FORWARD_ARGS+=("$@")
+			break
+			;;
+		--mode)
+			if [ "$#" -lt 2 ] || [ -z "$2" ] || [[ "$2" == -* ]]; then
+				echo "error: --mode requires a value (text, json, rpc, acp, or mcp)" >&2
+				exit 2
+			fi
+			HAS_MODE=1
+			FORWARD_ARGS+=(--mode "$2")
+			shift 2
+			continue
+			;;
+		--mode=*)
+			mode_value="${1#--mode=}"
+			if [ -z "$mode_value" ]; then
+				echo "error: --mode requires a value (text, json, rpc, acp, or mcp)" >&2
+				exit 2
+			fi
+			HAS_MODE=1
+			FORWARD_ARGS+=(--mode "$mode_value")
+			shift
+			continue
+			;;
+	esac
+	FORWARD_ARGS+=("$1")
+	shift
 done
 
 TMP_AGENT=""
@@ -79,12 +105,30 @@ cp "$KIT_DIR/agent/models.json" "$TMP_AGENT/models.json"
 cp "$KIT_DIR/agent/settings.json" "$TMP_AGENT/settings.json"
 cp "$KIT_DIR/extensions/worker-guard.ts" "$TMP_AGENT/extensions/worker-guard.ts"
 
-PI_BIN="$(resolve_pi_bin)"
-
-CMD=(
-	"$PI_BIN"
-	-p
-)
+if [ "$USE_DIST" -eq 1 ]; then
+	DIST_CLI="$REPO_ROOT/packages/coding-agent/dist/cli.js"
+	if [ "$PRINT_COMMAND" -eq 0 ]; then
+		if ! command -v bun >/dev/null 2>&1; then
+			echo "error: bun not found on PATH (required for --use-dist)" >&2
+			exit 127
+		fi
+		if [ ! -f "$DIST_CLI" ]; then
+			echo "error: $DIST_CLI not found (build packages/coding-agent first)" >&2
+			exit 1
+		fi
+	fi
+	CMD=(
+		bun
+		"$DIST_CLI"
+		-p
+	)
+else
+	PI_BIN="$(resolve_pi_bin)"
+	CMD=(
+		"$PI_BIN"
+		-p
+	)
+fi
 if [ "$HAS_MODE" -eq 0 ]; then
 	CMD+=(--mode text)
 fi
