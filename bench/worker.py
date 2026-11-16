@@ -9,9 +9,9 @@ import json
 import os
 import platform
 import re
-import resource
 import shlex
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -91,17 +91,18 @@ def parse_json_events(stdout_text: str) -> dict[str, Any]:
     settled = any(ev.get("type") == "agent_settled" and not ev.get("aborted", False) for ev in events)
 
     assistant_messages: list[dict[str, Any]] = []
-    agent_end_events = [ev for ev in events if ev.get("type") == "agent_end" and isinstance(ev.get("messages"), list)]
-    if agent_end_events:
-        for msg in agent_end_events[-1]["messages"]:
+    for ev in events:
+        if ev.get("type") == "message_end":
+            msg = ev.get("message")
             if isinstance(msg, dict) and msg.get("role") == "assistant":
                 assistant_messages.append(msg)
-    else:
+
+    if not assistant_messages:
         for ev in events:
-            if ev.get("type") == "message_end":
-                msg = ev.get("message")
-                if isinstance(msg, dict) and msg.get("role") == "assistant":
-                    assistant_messages.append(msg)
+            if ev.get("type") == "agent_end" and isinstance(ev.get("messages"), list):
+                for msg in ev["messages"]:
+                    if isinstance(msg, dict) and msg.get("role") == "assistant":
+                        assistant_messages.append(msg)
 
     total_input = 0
     total_output = 0
@@ -213,24 +214,42 @@ def run_once(
             exec_cmd = cmd
 
         t0 = time.perf_counter()
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             exec_cmd,
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_s,
-            check=False,
+            start_new_session=True,
         )
+        timed_out = False
+        try:
+            stdout_text, stderr_text = proc.communicate(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            stdout_text, stderr_text = proc.communicate()
         wall_s = round(time.perf_counter() - t0, 4)
 
-    rss_bytes = parse_rss_bytes(proc.stderr, use_time_l, use_time_v)
-    if rss_bytes is None and not use_time_l and not use_time_v:
-        ru = resource.getrusage(resource.RUSAGE_CHILDREN)
-        rss_bytes = ru.ru_maxrss if sys.platform == "darwin" else ru.ru_maxrss * 1024
+    rss_bytes = parse_rss_bytes(stderr_text, use_time_l, use_time_v)
+    parsed = parse_json_events(stdout_text)
+    if timed_out:
+        return {
+            "exit_code": None,
+            "wall_s": wall_s,
+            "rss_bytes": rss_bytes,
+            "usage": parsed["usage"],
+            "cost_usd": parsed["cost_usd"],
+            "settled": False,
+            "stop_reason": "timeout",
+            "text": parsed["text"],
+            "error_message": f"timeout after {timeout_s}s",
+        }
 
-    parsed = parse_json_events(proc.stdout)
     record: dict[str, Any] = {
         "exit_code": proc.returncode,
         "wall_s": wall_s,
@@ -257,7 +276,13 @@ def median_or_none(values: list[float | int | None]) -> float | int | None:
 
 
 def build_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
-    ok_runs = [r for r in runs if r["exit_code"] == 0 and r["settled"]]
+    ok_runs = [
+        r
+        for r in runs
+        if r["exit_code"] == 0
+        and r["settled"]
+        and r["stop_reason"] not in ("error", "aborted", "timeout", None)
+    ]
     target = ok_runs if ok_runs else runs
 
     wall_values = [r["wall_s"] for r in target]
@@ -352,7 +377,7 @@ def main() -> None:
     out_path.write_text(json.dumps(report, indent=2) + "\n")
     print(f"Wrote {out_path}", flush=True)
 
-    if report["summary"]["ok_runs"] < args.runs:
+    if report["summary"]["ok_runs"] != args.runs:
         sys.exit(1)
 
 

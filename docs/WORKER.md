@@ -11,7 +11,7 @@ The example kit lives in [examples/worker/](../examples/worker):
 - [examples/worker/extensions/worker-guard.ts](../examples/worker/extensions/worker-guard.ts) enforces request caps, exit-code normalization, and loop termination without runtime package imports.
 - [examples/worker/prompt.md](../examples/worker/prompt.md) holds the short instruction block appended with `--append-system-prompt`.
 - [examples/worker/run.sh](../examples/worker/run.sh) stages the kit into a temporary `PI_CODING_AGENT_DIR` that is removed on exit, leaving `~/.pi/agent` and the workspace untouched.
-- [bench/worker.py](../bench/worker.py) runs headless `--mode json` trials, verifies `agent_settled`, reads RSS from `/usr/bin/time -l` on macOS (or `/usr/bin/time -v` and `resource` elsewhere), and writes JSON summaries.
+- [bench/worker.py](../bench/worker.py) runs headless `--mode json` trials, aggregates usage and cost across all assistant turns, verifies `agent_settled` and non-error `stopReason`, reads RSS from `/usr/bin/time -l` on macOS or `/usr/bin/time -v` on Linux (`null` when neither is available), and writes JSON summaries.
 
 ## Guard behavior
 
@@ -48,6 +48,8 @@ OPENCODE_API_KEY=... python3 bench/worker.py \
 	--thinking off \
 	--out bench/results/2026-11-16-worker-flash/off.json
 ```
+
+`bench/worker.py` counts a run in `summary.ok_runs` only when `exit_code == 0`, `settled` is `true` (`agent_settled` with `aborted: false`), and `stop_reason` is not `"error"`, `"aborted"`, `"timeout"`, or `null`. Runs exceeding `--timeout` have their process group killed with `SIGKILL` and are recorded with `exit_code: null`, `settled: false`, `stop_reason: "timeout"`, and `error_message: "timeout after <N>s"`. The `--out` JSON file is always written; `bench/worker.py` exits `0` only when `ok_runs == runs`, and exits `1` otherwise.
 
 ## Measured results
 
