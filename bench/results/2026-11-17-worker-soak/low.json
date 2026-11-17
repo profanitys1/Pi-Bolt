@@ -1,0 +1,158 @@
+{
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "thinking": "low",
+  "tasks": [
+    "fix-bug",
+    "add-feature",
+    "extract-helper",
+    "read-only",
+    "multi-file-shell"
+  ],
+  "passed": 5,
+  "runs": [
+    {
+      "task": "fix-bug",
+      "thinking": "low",
+      "success": true,
+      "evidence": "PASS\n",
+      "wall_s": 10.331,
+      "exit_code": 0,
+      "timed_out": false,
+      "turns": 4,
+      "tool_calls": 5,
+      "tool_names": {
+        "bash": 2,
+        "read": 2,
+        "edit": 1
+      },
+      "tool_errors": 0,
+      "stop_reasons": [
+        "toolUse",
+        "toolUse",
+        "toolUse",
+        "stop"
+      ],
+      "input": 2323,
+      "output": 357,
+      "reasoning": 0,
+      "cache_read": 5632,
+      "cost_usd": 0.000579546,
+      "loop_breaker": false,
+      "unparsed_lines": 0
+    },
+    {
+      "task": "add-feature",
+      "thinking": "low",
+      "success": true,
+      "evidence": "PASS\n",
+      "wall_s": 14.476,
+      "exit_code": 0,
+      "timed_out": false,
+      "turns": 4,
+      "tool_calls": 3,
+      "tool_names": {
+        "bash": 2,
+        "edit": 1
+      },
+      "tool_errors": 0,
+      "stop_reasons": [
+        "toolUse",
+        "toolUse",
+        "toolUse",
+        "stop"
+      ],
+      "input": 2335,
+      "output": 282,
+      "reasoning": 0,
+      "cache_read": 5632,
+      "cost_usd": 0.0005363459999999999,
+      "loop_breaker": false,
+      "unparsed_lines": 0
+    },
+    {
+      "task": "extract-helper",
+      "thinking": "low",
+      "success": true,
+      "evidence": "a-b c-d/c-d\n",
+      "wall_s": 13.167,
+      "exit_code": 0,
+      "timed_out": false,
+      "turns": 4,
+      "tool_calls": 4,
+      "tool_names": {
+        "bash": 2,
+        "write": 2
+      },
+      "tool_errors": 0,
+      "stop_reasons": [
+        "toolUse",
+        "toolUse",
+        "toolUse",
+        "stop"
+      ],
+      "input": 1736,
+      "output": 343,
+      "reasoning": 10,
+      "cache_read": 6272,
+      "cost_usd": 0.000485016,
+      "loop_breaker": false,
+      "unparsed_lines": 0
+    },
+    {
+      "task": "read-only",
+      "thinking": "low",
+      "success": true,
+      "evidence": "sortNames, orderNames",
+      "wall_s": 7.875,
+      "exit_code": 0,
+      "timed_out": false,
+      "turns": 3,
+      "tool_calls": 3,
+      "tool_names": {
+        "bash": 1,
+        "read": 2
+      },
+      "tool_errors": 0,
+      "stop_reasons": [
+        "toolUse",
+        "toolUse",
+        "stop"
+      ],
+      "input": 1897,
+      "output": 217,
+      "reasoning": 15,
+      "cache_read": 3584,
+      "cost_usd": 0.000425502,
+      "loop_breaker": false,
+      "unparsed_lines": 0
+    },
+    {
+      "task": "multi-file-shell",
+      "thinking": "low",
+      "success": true,
+      "evidence": "alpha\nbeta\n",
+      "wall_s": 12.448,
+      "exit_code": 0,
+      "timed_out": false,
+      "turns": 3,
+      "tool_calls": 3,
+      "tool_names": {
+        "write": 2,
+        "bash": 1
+      },
+      "tool_errors": 0,
+      "stop_reasons": [
+        "toolUse",
+        "toolUse",
+        "stop"
+      ],
+      "input": 2152,
+      "output": 232,
+      "reasoning": 0,
+      "cache_read": 3456,
+      "cost_usd": 0.000472368,
+      "loop_breaker": false,
+      "unparsed_lines": 0
+    }
+  ]
+}
