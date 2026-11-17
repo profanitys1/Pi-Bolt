@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- DeepSeek V4.1 Flash models on `opencode-go` now report `off` as a supported thinking level, matching the `deepseek` and `openrouter` providers. The provider no longer overrides the effort map of the DeepSeek family, so turning thinking off no longer needs a `models.json` override
+
 ## [1.5.2] - 2026-11-10
 
 ### Fixed
